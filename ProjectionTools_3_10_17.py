@@ -38,23 +38,34 @@ import time                              #For timing our functions to improve pe
 
 ##############################################################################################
 #Create GUI panel
+#multi-panel - http://blender.stackexchange.com/questions/41933/bl-context-multiple-areas
 ##############################################################################################
 class ProjectionToolsPanel(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
-    bl_context = "objectmode"
+    #bl_context = "objectmode"
     bl_category = "ProTools"
     bl_label = "Projection Tools"
 
     def draw(self, context):
+        scene = context.scene
+        
         TheCol = self.layout.column(align=True)
         TheCol.operator("mesh.prot_paint_vertices", text="Paint Vertices")
         TheCol.operator("mesh.prot_displace_vertices", text="Displace Vertices")
         TheCol.prop(context.scene, "ProT_rotate_texture_90")
         TheCol.prop(context.scene,"ProT_texture_scale")
+        TheCol.prop(context.scene,"ProT_disp_scale")
+        TheCol.prop(context.scene,"ProT_Xnoise_scale")
+        TheCol.prop(context.scene,"ProT_Ynoise_scale")
+        
         
     #end draw
+contexts = ["objectmode", "vertexpaint"]
 
+for c in contexts:
+    propdic = {"bl_idname": "ProTools.%s" % c, "bl_context": c, }
+    projectionToolsPanel = type("ProTools%s" % c, (ProjectionToolsPanel,),propdic)
 
 
 ##############################################################################################
@@ -68,7 +79,7 @@ class ProT_PaintVertices(bpy.types.Operator):
     def invoke(self, context, event):
         # Load image file. Change here if the snippet folder is 
         # not located in you home directory.
-        realpath = os.path.expanduser('~/Documents/Blender/WoodBase.png')
+        realpath = os.path.expanduser('~/Documents/Blender/ProjectionTools/WoodBase.png')
         try:
             img = bpy.data.images.load(realpath)
         except:
@@ -77,6 +88,16 @@ class ProT_PaintVertices(bpy.types.Operator):
         #store image data in a list since texture lookup is slowwwwww
         #http://blender.stackexchange.com/questions/3673/why-is-accessing-image-data-so-slow
         pix = img.pixels[:]
+        
+        realpath2 = os.path.expanduser('~/Documents/Blender/ProjectionTools/noise.png')
+        try:
+            img2 = bpy.data.images.load(realpath2)
+        except:
+            raise NameError("Cannot load image %s" % realpath2)
+            
+        #store image data in a list since texture lookup is slowwwwww
+        #http://blender.stackexchange.com/questions/3673/why-is-accessing-image-data-so-slow
+        noisepix = img2.pixels[:]
         
         if context.scene.ProT_rotate_texture_90 == True:
             print("TODO!!!!, reorder values in pix list so that input image is effectively rotated")
@@ -103,6 +124,9 @@ class ProT_PaintVertices(bpy.types.Operator):
         imageWidth = int(2048)
 
         scale = context.scene.ProT_texture_scale
+        
+        XNoiseStrength = context.scene.ProT_Xnoise_scale
+        YNoiseStrength = context.scene.ProT_Ynoise_scale
         
         start = time.time()
         for poly in polygons:
@@ -133,16 +157,34 @@ class ProT_PaintVertices(bpy.types.Operator):
                         
                     #bpy.data.images['efeu1.png'].pixels[4 * (xpos + imageWidth * ypos) + channelOffset]
                     
-                    xpos = int((math.sqrt(vPos.x**2 * scale + vPos.y**2* scale)) % imageWidth)
-                    ypos = int(vPos.z * scale)
+                    workingPosX = vPos.x
+                    workingPosY = vPos.y
                     
                     channelOffset = 0       #since we're working with black and white
+                    noise = 1#noisepix[ 4 * ((int(workingPosX) + imageWidth * int(workingPosY))) + channelOffset]
+                    
+                    workingPosX = math.pow(abs(workingPosX), (XNoiseStrength * noise))
+                    workingPosY = math.pow(abs(workingPosY), (YNoiseStrength * noise))
+                    
+                    workingPosY = (math.pow(workingPosX, 2) + math.pow(workingPosY, 2)) / 2
+                    workingPosX = vPos.z
+                    workingPosX *= scale
+                    workingPosY *= scale
+                    
+                    #cast to integers so they can be used for list indices
+                    workingPosX = int(workingPosX)
+                    workingPosY = int(workingPosY)
+                    
+                    #xpos = int((math.sqrt(vPos.x**2 * scale + vPos.y**2* scale)) % imageWidth)
+                    #ypos = int(vPos.z * scale)
+                    
+                    
                     #pixPos = 4 * ((xpos + imageWidth * ypos) % imageWidth) + channelOffset
                     
                     #!!!!!Multiply the pixel color read from the texture by a masking value(possible on the blue channel)
                     #invert this value so if there is no blue value, blue will == 1 and give the full texture
                     #read value, otherwise it will interpolate between the masked value
-                    pixPos = 4 * ((xpos + imageWidth * ypos)) + channelOffset
+                    pixPos = 4 * ((workingPosX + imageWidth * workingPosY)) + channelOffset
                     
                     col = pix[pixPos]
                     color = [col, col, col]
@@ -155,12 +197,8 @@ class ProT_PaintVertices(bpy.types.Operator):
         end = time.time()
         print('Vertex Painting Time : ' + str(end - start))
         mesh.update()
-
-        #bpy.ops.object.mode_set(mode='VERTEX_PAINT')
-
         
-
-        print('Done!!')
+        bpy.ops.object.mode_set(mode='VERTEX_PAINT')
         return{"FINISHED"}
     
     
@@ -175,7 +213,7 @@ class ProT_DisplaceVertices(bpy.types.Operator):
         
         
 
-        offset = -0.005
+        offset = context.scene.ProT_disp_scale
 
         #Get a reference to our working mesh
         current_obj = bpy.context.active_object 
@@ -258,6 +296,29 @@ def register():
         description = "Controls the scale of the texture applied to the mesh",
         default = 1000.0
         )
+        
+    bpy.types.Scene.ProT_Xnoise_scale = bpy.props.FloatProperty \
+        (
+        name = "X noise strength",
+        description = "Controls the strength of noise influence in the X axis",
+        default = 1.0
+        )
+        
+    bpy.types.Scene.ProT_Ynoise_scale = bpy.props.FloatProperty \
+        (
+        name = "Y noise strength",
+        description = "Controls the strength of noise influence in the Y axis",
+        default = 1.0
+        )
+        
+    bpy.types.Scene.ProT_disp_scale = bpy.props.FloatProperty \
+        (
+        name = "Displacement amount",
+        description = "Controls the amount that the mesh is displaced",
+        default = 0.005
+        )
+        
+    
     
 def unregister():
     bpy.utils.unregister_class(ProjectionToolsPanel)
@@ -266,6 +327,9 @@ def unregister():
     
     del bpy.types.Scene.ProT_rotate_texture_90
     del bpy.types.ProT_texture_scale
+    del bpy.types.ProT_disp_scale
+    
+    
 #boilerplate which will invoke our registration routine in the situations (like the Text Editor) where Blender doesn't do it for us:
 if __name__ == "__main__":
     register()
