@@ -126,8 +126,8 @@ class ProT_PaintVertices(bpy.types.Operator):
             
         #store image data in a list since texture lookup is slowwwwww
         #http://blender.stackexchange.com/questions/3673/why-is-accessing-image-data-so-slow
-        pix = img.pixels[:]
-        
+        pix = np.array(img.pixels[:])
+                
         if context.scene.ProT_use_noise_tex:
             realpath2 = context.scene.ProT_NoiseTexturePath
             try:
@@ -138,9 +138,18 @@ class ProT_PaintVertices(bpy.types.Operator):
             #store image data in a list since texture lookup is slowwwwww
             #http://blender.stackexchange.com/questions/3673/why-is-accessing-image-data-so-slow
             noisepix = img2.pixels[:]
+            
         
+        #Rotate image via a numpy array
+        #reshape to a 3D array and rotate
+        #then reduce back to a 1D array for further use
         if context.scene.ProT_rotate_texture_90 == True:
             print("TODO!!!!, reorder values in pix list so that input image is effectively rotated")
+        
+            pix = np.reshape((pix), ( 2048, 2048, 4))     
+            pix = np.rot90(pix)
+            pix = np.ravel(pix)
+        
         
         end = time.time()
         print('Image Storage Time : ' + str(end - start))
