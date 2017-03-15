@@ -63,12 +63,19 @@ class ProToolsProjectionPanel(bpy.types.Panel):
         TheCol.prop(context.scene,"ProT_use_noise_tex")
         if context.scene.ProT_use_noise_tex:
             TheCol.prop(context.scene,"ProT_NoiseTexturePath")
+            TheCol.prop(context.scene,"ProT_noise_texture_scale")
+            TheCol.prop(context.scene,"ProT_noise_texture_strength")
+            TheCol.prop(context.scene,"ProT_use_X_noise")
+            TheCol.prop(context.scene,"ProT_use_Y_noise")
             
         TheCol.operator("mesh.prot_paint_vertices", text="Paint Vertices")
         TheCol.prop(context.scene,"ProT_rotate_texture_90")
         TheCol.prop(context.scene,"ProT_texture_scale")
         TheCol.prop(context.scene,"ProT_Xnoise_scale")
         TheCol.prop(context.scene,"ProT_Ynoise_scale")
+        
+        TheCol.prop(context.scene,"ProT_CC_X")
+        TheCol.prop(context.scene,"ProT_CC_Y")
         
         
     #end draw
@@ -162,6 +169,9 @@ class ProT_PaintVertices(bpy.types.Operator):
         XNoiseStrength = context.scene.ProT_Xnoise_scale
         YNoiseStrength = context.scene.ProT_Ynoise_scale
         
+        CCX = context.scene.ProT_CC_X
+        CCY = context.scene.ProT_CC_Y
+        
         start = time.time()
         
         for poly in polygons:
@@ -173,7 +183,60 @@ class ProT_PaintVertices(bpy.types.Operator):
                     #get vertex global/local positions
                     #http://blender.stackexchange.com/questions/1311/how-can-i-get-vertex-positions-from-a-mesh
                     vPos = verts[loop_vert_index].co
+                    
+                    #if you want to bake position information to the mesh
                     #color = vPos
+                    
+                    
+                    workingPosX = vPos.x + CCX
+                    workingPosY = vPos.y + CCY
+                    
+                    channelOffset = 0       #since we're working with black and white
+                    
+                    #tempX = (math.pow(workingPosX, 2) + math.pow(workingPosY, 2)) / 2
+                    tempX = (workingPosX + workingPosY) / 2
+                    tempY = vPos.z
+                    
+                    tempX = tempX * context.scene.ProT_noise_texture_scale
+                    tempY = tempY * context.scene.ProT_noise_texture_scale
+                    
+                    tempX = tempX % imageWidth
+                    tempY = tempY % imageWidth
+                    
+                    if context.scene.ProT_use_noise_tex:
+                        noise = noisepix[ 4 * ((int(tempX) + imageWidth * int(tempY))) + channelOffset]
+                        noise *= context.scene.ProT_noise_texture_strength
+                    
+                    else:
+                        noise = 1
+                    
+                    #Edge case, raising 0 to a negative exponent causes error
+                    #modify the perceived values of the vector coordinates by the noise map values
+                    if workingPosX != 0:
+                        if context.scene.ProT_use_X_noise:
+                            workingPosX = (abs(workingPosX) ** (XNoiseStrength * noise))
+                        else:
+                            workingPosX = (abs(workingPosX) ** XNoiseStrength)
+                    if workingPosY != 0:
+                        if context.scene.ProT_use_X_noise:
+                            workingPosY = (abs(workingPosY) ** (YNoiseStrength * noise))
+                        else:
+                            workingPosY = (abs(workingPosY) ** YNoiseStrength)
+                    
+                    #workingPosY = (math.pow(workingPosX, 2) + math.pow(workingPosY, 2)) / 2
+                    workingPosY = (workingPosX + workingPosY) / 2
+                    workingPosX = vPos.z
+                    workingPosX *= scale
+                    workingPosY *= scale
+                    
+                    #cast to integers so they can be used for list indices
+                    workingPosX = int(workingPosX % imageWidth)
+                    workingPosY = int(workingPosY % imageWidth)
+                    
+                    
+                    #!!!!!Multiply the pixel color read from the texture by a masking value(possible on the blue channel)
+                    #invert this value so if there is no blue value, blue will == 1 and give the full texture
+                    #read value, otherwise it will interpolate between the masked value
                     
                     #get color information from imported image
                     #https://blenderartists.org/forum/showthread.php?195230-im-getpixel()-or-equivalent-in-Blender-2-5
@@ -185,40 +248,6 @@ class ProT_PaintVertices(bpy.types.Operator):
                         #B = 2
                         #A = 3
                         
-                    #bpy.data.images['efeu1.png'].pixels[4 * (xpos + imageWidth * ypos) + channelOffset]
-                    
-                    workingPosX = vPos.x
-                    workingPosY = vPos.y
-                    
-                    channelOffset = 0       #since we're working with black and white
-                    
-                    if context.scene.ProT_use_noise_tex:
-                        noise = 1#noisepix[ 4 * ((int(workingPosX) + imageWidth * int(workingPosY))) + channelOffset]
-                    
-                    else:
-                        noise = 1
-                    
-                    workingPosX = math.pow(abs(workingPosX), (XNoiseStrength * noise))
-                    workingPosY = math.pow(abs(workingPosY), (YNoiseStrength * noise))
-                    
-                    workingPosY = (math.pow(workingPosX, 2) + math.pow(workingPosY, 2)) / 2
-                    workingPosX = vPos.z
-                    workingPosX *= scale
-                    workingPosY *= scale
-                    
-                    #cast to integers so they can be used for list indices
-                    workingPosX = int(workingPosX)
-                    workingPosY = int(workingPosY)
-                    
-                    #xpos = int((math.sqrt(vPos.x**2 * scale + vPos.y**2* scale)) % imageWidth)
-                    #ypos = int(vPos.z * scale)
-                    
-                    
-                    #pixPos = 4 * ((xpos + imageWidth * ypos) % imageWidth) + channelOffset
-                    
-                    #!!!!!Multiply the pixel color read from the texture by a masking value(possible on the blue channel)
-                    #invert this value so if there is no blue value, blue will == 1 and give the full texture
-                    #read value, otherwise it will interpolate between the masked value
                     pixPos = 4 * ((workingPosX + imageWidth * workingPosY)) + channelOffset
                     
                     col = pix[pixPos]
@@ -434,19 +463,47 @@ def register():
         description = "Controls the scale of the texture applied to the mesh",
         default = 1000.0
         )
+
+    bpy.types.Scene.ProT_noise_texture_scale = bpy.props.FloatProperty \
+        (
+        name = "noise texture scale",
+        description = "Controls the scale of the noise texture",
+        default = 1.0
+        )
         
+    bpy.types.Scene.ProT_noise_texture_strength = bpy.props.FloatProperty \
+        (
+        name = "noise texture strength",
+        description = "Controls the strength of the noise texture",
+        default = 1.0
+        )
+   
     bpy.types.Scene.ProT_Xnoise_scale = bpy.props.FloatProperty \
         (
         name = "X noise strength",
         description = "Controls the strength of noise influence in the X axis",
-        default = 1.0
+        default = 2.0
+        )
+
+    bpy.types.Scene.ProT_use_X_noise = bpy.props.BoolProperty \
+        (
+        name = "Use X Noise",
+        description = "Use texture to deform on X axis",
+        default = True
         )
         
+    bpy.types.Scene.ProT_use_Y_noise = bpy.props.BoolProperty \
+        (
+        name = "Use Y Noise",
+        description = "Use texture to deform on Y axis",
+        default = False
+        )
+                
     bpy.types.Scene.ProT_Ynoise_scale = bpy.props.FloatProperty \
         (
         name = "Y noise strength",
         description = "Controls the strength of noise influence in the Y axis",
-        default = 1.0
+        default = 2.0
         )
         
     bpy.types.Scene.ProT_disp_scale = bpy.props.FloatProperty \
@@ -455,6 +512,22 @@ def register():
         description = "Controls the amount that the mesh is displaced",
         default = 0.005
         )
+        
+    bpy.types.Scene.ProT_CC_X = bpy.props.FloatProperty \
+        (
+        name = "Circle Center X axis",
+        description = "Controls the location of the circle center on the X axis",
+        default = 0.0
+        )
+        
+    bpy.types.Scene.ProT_CC_Y = bpy.props.FloatProperty \
+        (
+        name = "Circle Center Y axis",
+        description = "Controls the location of the circle center on the Y axis",
+        default = 0.0
+        )
+        
+        
         
     
     
@@ -468,8 +541,18 @@ def unregister():
     del bpy.types.Scene.ProT_ImageTexturePath
     del bpy.Types.Scene.ProT_NoiseTexturePath
     del bpy.types.Scene.ProT_rotate_texture_90
+    
     del bpy.types.ProT_texture_scale
+    del bpy.types.ProT_noise_texture_scale
+    del bpy.types.ProT_noise_texture_strength
+    del bpy.types.ProT_Xnoise_scale
+    del bpy.types.ProT_use_X_noise
+    del bpy.types.ProT_Ynoise_scale
+    del bpy.types.ProT_use_Y_noise
     del bpy.types.ProT_disp_scale
+    del bpy.types.ProT_CC_X
+    del bpy.types.ProT_CC_Y
+    
     
     
 #boilerplate which will invoke our registration routine in the situations (like the Text Editor) where Blender doesn't do it for us:
@@ -485,4 +568,8 @@ if __name__ == "__main__":
 Image preview icons 
 http://blender.stackexchange.com/questions/32335/how-to-implement-custom-icons-for-my-script-addon
 
+
+
+
+Use X, Y noise boolean
 '''
