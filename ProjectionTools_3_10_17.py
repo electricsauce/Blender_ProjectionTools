@@ -45,7 +45,7 @@ class ProToolsProjectionPanel(bpy.types.Panel):
     bl_region_type = "TOOLS"
     bl_category = "ProTools"
     bl_label = "Projection Tools"
-
+    
     def draw(self, context):
         layout = self.layout
         #wm = context.window_manager
@@ -58,7 +58,10 @@ class ProToolsProjectionPanel(bpy.types.Panel):
         #image preview - todo
         #TheCol.template_preview( bpy.data.textures["bpy.context.ProT_ImageTexturePath"])
         
+        #find a way to cache this so that it only needs to stored when the texture is initially loaded
         TheCol.prop(context.scene,"ProT_ImageTexturePath")
+        #Pix = TheCol.prop(context.scene,"ProT_ImageTexturePath")
+        TheCol.prop(context.scene,"ProT_use_bch")
         
         TheCol.prop(context.scene,"ProT_use_noise_tex")
         if context.scene.ProT_use_noise_tex:
@@ -103,10 +106,43 @@ for c in contexts:
     propdic = {"bl_idname": "ProTools.%s" % c, "bl_context": c, }
     projectionToolsPanel = type("ProTools%s" % c, (ProToolsProjectionPanel,),propdic)
 
+#simple linear interpolation
+def lerp(num, min, max):
+    return min + ((max - min) * num)
 
 ##############################################################################################
 #Load image
 ##############################################################################################
+def ProT_Update_Main_Texture(self, context):
+    start = time.time()
+    print ("Caching main texture")
+    
+    '''
+    # Load image file. Change here if the snippet folder is 
+    # not located in you home directory.
+    realpath = context.scene.ProT_ImageTexturePath
+    try:
+        img = bpy.data.images.load(realpath)
+    except:
+        raise NameError("Cannot load image %s" % realpath)
+        
+    #store image data in a list since texture lookup is slowwwwww
+    #http://blender.stackexchange.com/questions/3673/why-is-accessing-image-data-so-slow
+    pix = np.array(img.pixels[:])
+    '''
+    end = time.time()
+    print('Image Storage Time : ' + str(end - start))
+    return None
+
+def ProT_Update_Noise_Texture(self, context):
+    start = time.time()
+    print ("Caching noise texture")
+    
+    end = time.time()
+    print('Image Storage Time : ' + str(end - start))
+    return None
+
+
 class ProT_PaintVertices(bpy.types.Operator):
     bl_idname = "mesh.prot_paint_vertices"
     bl_label = "Paint Vertices"
@@ -114,10 +150,8 @@ class ProT_PaintVertices(bpy.types.Operator):
     
     def invoke(self, context, event):
         start = time.time()
-        # Load image file. Change here if the snippet folder is 
-        # not located in you home directory.
-        #realpath = os.path.expanduser('~/Documents/Blender/ProjectionTools/WoodBase.png')      
-        #realpath = os.path.expanduser(context.scene.ProT_ImageTexturePath)
+        
+        # Load image file. 
         realpath = context.scene.ProT_ImageTexturePath
         try:
             img = bpy.data.images.load(realpath)
@@ -183,6 +217,53 @@ class ProT_PaintVertices(bpy.types.Operator):
         
         start = time.time()
         
+        '''
+        //Get input direction
+			float3 projDir_x = float3(sin(_ProjDirX), cos(_ProjDirX), 0.0f);
+			float3 projDir_y = float3(0.0f, sin(_ProjDirY), cos(_ProjDirY));
+
+			//create third othogonal vector
+			float3 tov_0 = projDir_x;
+			float3 tov_1 = cross(projDir_y, projDir_x);
+			float3 tov_2 = cross(projDir_x, tov_1);
+
+			//InverseTransformMatrix
+			float it0 = dot(IN.coords, tov_0);
+			float it1 = dot(IN.coords, tov_2);
+			float it2 = dot(IN.coords, tov_1);
+			
+			float4 WorldPos = float4(it0, it1, it2, 0.0);
+			half2 workingPos = WorldPos.xy;
+
+			workingPos.x = workingPos.x + _CircleCenterX;
+			workingPos.y = workingPos.y + _CircleCenterY;
+
+			float2 tempPos = float2((workingPos.x + workingPos.y) / 2, WorldPos.z);
+
+			workingPos.x = pow(abs(workingPos.x), lerp(_XNoiseStrength, (_XNoiseStrength * (tex2D(_NoiseMap, tempPos) * _NoiseMapStrength)), _UseXNoiseMap));
+			workingPos.y = pow(abs(workingPos.y), lerp(_YNoiseStrength, (_YNoiseStrength * (tex2D(_NoiseMap, tempPos) * _NoiseMapStrength)), _UseYNoiseMap));
+
+			workingPos.y = (workingPos.x + workingPos.y) / 2;
+			workingPos.x = WorldPos.z;
+
+			workingPos *= _TexScale;
+
+			fixed4 c = tex2D(_MainTex, workingPos);
+
+			o.Albedo = c.rgb *_Color;
+
+
+			half3 tempNormal = UnpackNormal(tex2D(_BumpMap, workingPos));
+			tempNormal.z = tempNormal.z / _NormalStrength;
+			o.Normal = tempNormal;
+
+
+			// Metallic comes from slider variables
+			o.Metallic = _Metallic;
+			o.Smoothness = c.w * _Glossiness;
+			o.Alpha = c.a;
+            '''
+        
         for poly in polygons:
                 for loop_index in poly.loop_indices:
                     loop_vert_index = mesh.loops[loop_index].vertex_index
@@ -202,7 +283,6 @@ class ProT_PaintVertices(bpy.types.Operator):
                     
                     channelOffset = 0       #since we're working with black and white
                     
-                    #tempX = (math.pow(workingPosX, 2) + math.pow(workingPosY, 2)) / 2
                     tempX = (workingPosX + workingPosY) / 2
                     tempY = vPos.z
                     
@@ -232,7 +312,6 @@ class ProT_PaintVertices(bpy.types.Operator):
                         else:
                             workingPosY = (abs(workingPosY) ** YNoiseStrength)
                     
-                    #workingPosY = (math.pow(workingPosX, 2) + math.pow(workingPosY, 2)) / 2
                     workingPosY = (workingPosX + workingPosY) / 2
                     workingPosX = vPos.z
                     workingPosX *= scale
@@ -258,10 +337,16 @@ class ProT_PaintVertices(bpy.types.Operator):
                         #A = 3
                         
                     pixPos = 4 * ((workingPosX + imageWidth * workingPosY)) + channelOffset
+                    storedColor = vcol_layer.data[loop_index].color
                     
-                    col = pix[pixPos]
-                    color = [col, col, col]
+                    if context.scene.ProT_use_bch:                        
+                        mask = 1 - lerp(storedColor.b, 0.0, 1.0)
                     
+                    else:
+                        mask = 1
+                    
+                    col = pix[pixPos] * mask
+                    color = [col * mask, storedColor.g, storedColor.b]
                     vcol_layer.data[loop_index].color = color
 
                     #print("painting vert",loop_index, "to color ", color[0], color[1], color[2])
@@ -438,19 +523,30 @@ def register():
     bpy.utils.register_class(ProT_DisplaceVertices)
     bpy.utils.register_class(ProT_DisplaceVertices_method2)
     
+    #bpy.utils.register_class(ProT_Test)
+    
     bpy.types.Scene.ProT_ImageTexturePath = bpy.props.StringProperty(name="Browse Image:",
         #attr="main_image_path",# this a variable that will set or get from the scene
         description="Main image texture file path",
         maxlen= 1024,
         subtype='FILE_PATH',
-        default= "")#this set the text
+        default= "",
+        update = ProT_Update_Main_Texture)
         
     bpy.types.Scene.ProT_NoiseTexturePath = bpy.props.StringProperty(name="Browse Image:",
         #attr="noise_image_path",# this a variable that will set or get from the scene
         description="Noise texture file path",
         maxlen= 1024,
         subtype='FILE_PATH',
-        default= "")#this set the text
+        default= "",
+        update = ProT_Update_Noise_Texture)
+ 
+    bpy.types.Scene.ProT_use_bch = bpy.props.BoolProperty \
+        (
+        name = "Use blue channel masking",
+        description = "Use blue channel vertex color information for masking",
+        default = False
+        )
     
     bpy.types.Scene.ProT_use_noise_tex = bpy.props.BoolProperty \
         (
@@ -519,7 +615,7 @@ def register():
         (
         name = "Displacement amount",
         description = "Controls the amount that the mesh is displaced",
-        default = 0.005
+        default = 0.01
         )
         
     bpy.types.Scene.ProT_CC_X = bpy.props.FloatProperty \
@@ -550,6 +646,7 @@ def unregister():
     del bpy.types.Scene.ProT_ImageTexturePath
     del bpy.Types.Scene.ProT_NoiseTexturePath
     del bpy.types.Scene.ProT_rotate_texture_90
+    del bpy.types.Scene.ProT_use_bch
     
     del bpy.types.ProT_texture_scale
     del bpy.types.ProT_noise_texture_scale
